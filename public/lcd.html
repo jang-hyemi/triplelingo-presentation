@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>LCD 입모양 미리보기 (480×320)</title>
+<style>
+  body {
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* min-height: 100vh; */
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    color: #eee;
+  }
+  h2   { margin-bottom: 6px; font-size: 18px; color: #aaa; }
+  .lbl { font-size: 13px; color: #666; margin-bottom: 14px; }
+  .bezel {
+    background: #111;
+    border-radius: 10px;
+    padding: 14px 18px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.8), inset 0 0 8px #000;
+    border: 2px solid #333;
+  }
+  canvas { display: block; border-radius: 4px; }
+  .btns  { display: flex; gap: 14px; margin-top: 22px; }
+  button {
+    padding: 10px 28px; border: none; border-radius: 6px;
+    font-size: 14px; cursor: pointer; font-weight: bold;
+    transition: opacity .2s;
+  }
+  button:hover { opacity: .8; }
+  #btnListen { background: #00c853; color: #000; }
+  #btnSpeak  { background: #2979ff; color: #fff; }
+  .mode-label { margin-top: 16px; font-size: 15px; color: #ccc; height: 22px; }
+  .dot {
+    display: inline-block; width: 9px; height: 9px;
+    border-radius: 50%; margin-right: 6px;
+    animation: blink 1s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+</style>
+</head>
+<body>
+
+<h2>3.5인치 TFT LCD 입모양 미리보기</h2>
+<div class="lbl">480 × 320px &nbsp;|&nbsp; 실제 비율</div>
+
+<div class="bezel">
+  <canvas id="lcd" width="480" height="320"></canvas>
+</div>
+
+<div class="btns">
+  <button id="btnListen">🎤 사용자 말하는 중</button>
+  <button id="btnSpeak" >🤖 로봇 말하는 중</button>
+</div>
+<div class="mode-label" id="modeLabel"></div>
+
+<script>
+const canvas = document.getElementById('lcd');
+const ctx    = canvas.getContext('2d');
+const W = 480, H = 320;
+let mode = 'speak', t = 0;
+
+/* ── 픽셀 그리드 설정 ── */
+const COLS = 24, ROWS = 10;
+const PW   = Math.floor(W / COLS);   // 픽셀 1칸 가로 = 20
+const PH   = Math.floor(H / ROWS);   // 픽셀 1칸 세로 = 32
+const GAP  = 2;
+
+/* 픽셀 하나를 그리는 함수 */
+function drawPixel(col, row, color, glow = false) {
+  const x = col * PW + GAP;
+  const y = row * PH + GAP;
+  const w = PW - GAP * 2;
+  const h = PH - GAP * 2;
+  if (glow) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 12;
+  }
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 3);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+/* 꺼진 픽셀 (격자 배경) */
+function drawGrid() {
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#12121e';
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      const x = c * PW + GAP, y = r * PH + GAP;
+      ctx.beginPath();
+      ctx.roundRect(x, y, PW - GAP*2, PH - GAP*2, 3);
+      ctx.fill();
+    }
+  }
+}
+
+/* ── 입 모양 패턴 정의 (col 시작, row, 가로 칸수) ── */
+// openLevel: 0(닫힘) ~ 4(최대 개방)
+function getMouthPattern(openLevel) {
+  // 각 레벨별 켜야 할 픽셀 [col, row] 목록
+  const cx = 12; // 가로 중앙 (0-indexed, COLS=24)
+
+  // 공통: 양쪽 꼭짓점 (입꼬리)
+  const corners = [
+    [cx-6, 4], [cx+5, 4],
+  ];
+
+  // 닫힌 상태: 가로 한 줄
+  const closed = [];
+  for (let c = cx-5; c <= cx+4; c++) closed.push([c, 4]);
+
+  // 레벨별 아래턱 라인
+  const lower = [
+    [],                                                           // 0: 닫힘
+    [[cx-4,5],[cx-3,5],[cx-2,5],[cx-1,5],[cx,5],[cx+1,5],[cx+2,5],[cx+3,5]],  // 1
+    [[cx-4,5],[cx-3,6],[cx-2,6],[cx-1,6],[cx,6],[cx+1,6],[cx+2,6],[cx+3,5]],  // 2
+    [[cx-3,5],[cx-2,6],[cx-1,7],[cx,7],[cx+1,6],[cx+2,5]],       // 3
+    [[cx-2,5],[cx-1,6],[cx,6],[cx+1,5]],                          // 4
+  ];
+
+  // 윗입술: 열린 만큼 위로 오목해짐
+  const upper = [
+    [],
+    [[cx-4,4],[cx-3,3],[cx-2,3],[cx-1,3],[cx,3],[cx+1,3],[cx+2,3],[cx+3,4]],
+    [[cx-4,4],[cx-3,3],[cx-2,3],[cx-1,3],[cx,3],[cx+1,3],[cx+2,3],[cx+3,4]],
+    [[cx-3,4],[cx-2,3],[cx-1,3],[cx,3],[cx+1,3],[cx+2,4]],
+    [[cx-2,4],[cx-1,3],[cx,3],[cx+1,4]],
+  ];
+
+  // 입 안쪽 채우기
+  const inner = [];
+  if (openLevel >= 1) {
+    for (let c = cx-3; c <= cx+2; c++) inner.push([c, 4]);
+  }
+  if (openLevel >= 2) {
+    for (let c = cx-3; c <= cx+2; c++) inner.push([c, 5]);
+  }
+  if (openLevel >= 3) {
+    for (let c = cx-2; c <= cx+1; c++) inner.push([c, 6]);
+  }
+
+  return { closed, upper: upper[openLevel], lower: lower[openLevel], inner };
+}
+
+/* ── SPEAK 모드: 디지털 입모양 ── */
+function drawMouth() {
+  drawGrid();
+
+  // 열림 레벨 (0~4), 사인파로 자연스럽게 변화
+  const raw  = Math.abs(Math.sin(t * 0.08) * Math.sin(t * 0.13 + 1.1));
+  const openLevel = Math.round(raw * 4);
+  const pat  = getMouthPattern(openLevel);
+
+  const ON_LIP   = '#00cfff';   // 입술 픽셀 (밝은 시안)
+  const ON_INNER = '#003a4a';   // 입 안쪽 (어두운 청록)
+
+  // 입 안쪽 먼저 (뒤에 그려지게)
+  pat.inner.forEach(([c,r]) => drawPixel(c, r, ON_INNER));
+
+  // 닫힘 상태
+  if (openLevel === 0) {
+    pat.closed.forEach(([c,r]) => drawPixel(c, r, ON_LIP, true));
+  } else {
+    // 윗입술
+    pat.upper.forEach(([c,r]) => drawPixel(c, r, ON_LIP, true));
+    // 아랫입술
+    pat.lower.forEach(([c,r]) => drawPixel(c, r, ON_LIP, true));
+    // 양쪽 입꼬리
+    pat.closed.slice(0,1).forEach(([c,r]) => drawPixel(c, r, ON_LIP, true));
+    pat.closed.slice(-1).forEach(([c,r]) => drawPixel(c, r, ON_LIP, true));
+  }
+
+}
+
+/* ── LISTEN 모드: 파형 ── */
+function drawWaveform() {
+  drawGrid();
+
+  const ON_WAVE = '#00e676';
+  const MID_ROW = 4;   // 세로 중앙 행
+
+  for (let c = 1; c < COLS - 1; c++) {
+    const amp = Math.abs(
+      Math.sin(t * 0.07 + c * 0.45) *
+      Math.cos(t * 0.04 + c * 0.2)
+    );
+    const halfH = Math.round(amp * (ROWS / 2 - 1));
+    for (let dr = -halfH; dr <= halfH; dr++) {
+      const r = MID_ROW + dr;
+      if (r >= 0 && r < ROWS) {
+        const brightness = 1 - Math.abs(dr) / (halfH + 1);
+        const col = `rgba(0,230,118,${0.4 + brightness * 0.6})`;
+        drawPixel(c, r, col, dr === 0);
+      }
+    }
+  }
+
+}
+
+/* ── IDLE ── */
+function drawIdle() {
+  drawGrid();
+  const pat = getMouthPattern(0);
+  pat.closed.forEach(([c,r]) => drawPixel(c, r, '#1a4a5a'));
+  ctx.fillStyle = '#2a2a3a';
+  ctx.font      = 'bold 13px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('— STANDBY —', W/2, H/2 - 20);
+}
+
+/* ── 루프 ── */
+function loop() {
+  t++;
+  if      (mode === 'speak')  drawMouth();
+  else if (mode === 'listen') drawWaveform();
+  else                        drawIdle();
+  requestAnimationFrame(loop);
+}
+
+/* ── 버튼 ── */
+const ml = document.getElementById('modeLabel');
+document.getElementById('btnListen').onclick = () => {
+  mode = 'listen';
+  ml.innerHTML = '<span class="dot" style="background:#00e676"></span>음성 인식 중...';
+};
+document.getElementById('btnSpeak').onclick = () => {
+  mode = 'speak';
+  ml.innerHTML = '<span class="dot" style="background:#2196f3"></span>로봇 발화 중...';
+};
+
+mode = 'speak';
+ml.innerHTML = '<span class="dot" style="background:#2196f3"></span>로봇 발화 중...';
+loop();
+</script>
+</body>
+</html>
