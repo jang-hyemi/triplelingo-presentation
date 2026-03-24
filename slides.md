@@ -8,7 +8,7 @@ fonts:
   sans: Chiron GoRound TC
   weights: '400,700'
   provider: google
-base: /triplelingo-presentation/
+
 
 ---
 
