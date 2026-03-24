@@ -1,6 +1,6 @@
 ---
 theme: default
-title: 로봇 동작 시연
+title: 4주차 발표
 colorSchema: light
 css: ./style.css
 fonts:
