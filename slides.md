@@ -1,4 +1,5 @@
 ---
+
 theme: default
 title: 4주차 발표
 colorSchema: light
@@ -8,6 +9,7 @@ fonts:
   weights: '400,700'
   provider: google
 base: /triplelingo-presentation/
+
 ---
 
 <!-- 첫 슬라이드 -->
